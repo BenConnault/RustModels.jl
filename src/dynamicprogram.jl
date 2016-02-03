@@ -60,8 +60,8 @@ function solvedp!(model::SIRMC)
 		fm.colptr=dpj.colptr
 	end
 
-	df = SparseNLsolve.DifferentiableMultivariateFunction(ff!, fj!)
-	res=SparseNLsolve.nlsolve(df,model.V,autoscale=false)	#will automatically start at previous value
+	df = NLsolve.DifferentiableSparseMultivariateFunction(ff!, fj!)
+	res= NLsolve.nlsolve(df,model.V,autoscale=false)	#will automatically start at previous value
 	# println(res)
 	model.V[:]=res.zero 		
 	for ia=1:da
@@ -155,8 +155,8 @@ function solvedp_old!(model::RustModelCore)
 		fm.colptr=dpj.colptr
 	end
 
-	df = SparseNLsolve.DifferentiableMultivariateFunction(ff!, fj!)
-	res=SparseNLsolve.nlsolve(df,model.V,autoscale=false)	#will automatically start at previous value
+	df = NLsolve.DifferentiableSparseMultivariateFunction(ff!, fj!)
+	res= NLsolve.nlsolve(df,model.V,autoscale=false)	#will automatically start at previous value
 	# println(res)
 	model.V[:]=res.zero 		
 	for ia=1:da

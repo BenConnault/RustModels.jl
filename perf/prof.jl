@@ -1,3 +1,5 @@
+module prof
+
 using RustModels
 using ProfileView
 import Markov.rsm
@@ -15,5 +17,7 @@ coef!(dirm,theta0)
 data=rand(dirm,100,100)
 
 Profile.clear()
-@profile mle(models[3],data);
+@profile mle(models[2],data);
 ProfileView.view()
+
+end #module

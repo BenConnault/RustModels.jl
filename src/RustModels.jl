@@ -1,7 +1,6 @@
 module RustModels
 
 import NLsolve
-import SparseNLsolve
 import Distributions: wsample
 import StatsBase.StatisticalModel
 importall DynamicDiscreteModels

@@ -1,5 +1,7 @@
+module bench
+
 using RustModels
-import Markov.rsm
+import HiddenMarkovModels.rsm
 
 include("../test/toymodels.jl")
 
@@ -21,3 +23,5 @@ function bench1()
 	end
 	timings
 end
+
+end #module
