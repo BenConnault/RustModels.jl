@@ -1,5 +1,4 @@
-loglikelihood(model::HiddenRustModel,data)=loglikelihood(model.hiddenlayer,data)
-loglikelihood_jac(model::HiddenRustModel,data)=loglikelihood_jac(model.hiddenlayer,data)
+### TYPES AND CONSTRUCTORS
 
 immutable HiddenLayer <: DynamicDiscreteModel
 	m::Array{Float64,4}			  	#the transition matrix given as m[x,y,x',y'] 
@@ -28,7 +27,7 @@ hiddenlayer(mu,dx,dy,dtheta)=HiddenLayer(
 		Array(Float64,dx,dtheta)					#psijac
 )
 
-immutable HiddenRustModel{S} <: StatisticaModel
+immutable HiddenRustModel{S} <: StatisticalModel
 	#Linear Rust Model u[k,a]=aa[k,a,itheta]*theta + bb[k,a]
 	aa::Array{Float64,3}		  	#aa[k,a,itheta]
 	bb::Array{Float64,2}		  	#bb[k,a]
@@ -42,6 +41,7 @@ immutable HiddenRustModel{S} <: StatisticaModel
 	hiddenlayer::HiddenLayer
 
 end
+
 
 function hiddenrustmodel(core::RustModelCore,aa,bb,mu,beta,pis)
 	dx,dy=size(mu)
@@ -95,19 +95,24 @@ function hiddenrustmodel(core::RustModelCore,aa,bb,mu,beta,pis)
 	model
 end
 
-function hiddenrustmodel{S}(aa,bb,mu,beta,pis::Array{S,1})
-	da=size(bb,2)
-	pi=Array(S,da)
-	core=rustmodelcore(beta,pi)
+pitemp(::Type{SparseMatrixCSC{Float64,Int64}},dk,da)=[spzeros(dk,dk)::SparseMatrixCSC{Float64,Int64} for ia=1:da]
+pitemp(::Type{Array{Float64,2}},dk,da)=[zeros(dk,dk)::Array{Float64,2} for ia=1:da]
+
+
+function hiddenrustmodel{S}(aa::Array,bb,mu,beta,pis::Array{S,1})
+	dk,da=size(bb)
+	core=rustmodelcore(beta,pitemp(S,dk,da))
 	hiddenrustmodel(core,aa,bb,mu,beta,pis)
 end
 
-function hiddenrustmodel{S}(aa,bb,mu,beta,pis::::Array{S,1},horizonindex)
-	da=size(bb,2)
-	pi=Array(S,da)
-	core=rustmodelcore(beta,pi,horizonindex)
+function hiddenrustmodel{S}(aa::Array,bb,mu,beta,pis::Array{S,1},horizonindex)
+	dk,da=size(bb)
+	core=rustmodelcore(beta,pitemp(S,dk,da))
 	hiddenrustmodel(core,aa,bb,mu,beta,pis)
 end
+
+### StatisticalModel interface
+
 
 
 function pi!{S}(model::HiddenRustModel{S},q::S)
@@ -133,7 +138,7 @@ function u!(model::HiddenRustModel,lambda::Array{Float64,1})
 end
 
 
-function m!(model::RustModel)
+function m!(model::HiddenRustModel)
 	dx,dy=size(model.hiddenlayer.mu)
 	dk,da=size(model.rustcore.p)
 	ds=size(model.sindices)[1]
@@ -162,7 +167,7 @@ function coef!(model::HiddenRustModel,theta::Array{Float64,1})
 	q=z2q(theta[dlambda+1:end])
 	u!(model,lambda)
 	pi!(model,q)
-	solvedp!(model)
+	solvedp!(model.rustcore)
 	m!(model)
 	# dy$size(model.hiddenlayer.mu,2)
 	# println(round(reshape(model.m,dx*dy,dx*dy),2))

@@ -1,11 +1,12 @@
 using RustModels
 using Base.Test
 
-import Markov.rsm
+import RustModels: rsm,z2q,checkdp
 
 
 include("toymodels.jl")
-include("indexmanipulation.jl")
+
+# include("indexmanipulation.jl")
 include("classicalrustmodels.jl")
 include("hiddenrustmodels.jl")
 

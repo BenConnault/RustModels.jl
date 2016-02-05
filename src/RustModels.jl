@@ -20,6 +20,7 @@ include("indexmanipulation.jl")
 include("dynamicprogram.jl")
 include("classicalrustmodel.jl")
 include("hiddenrustmodel.jl")
+include("hiddenrustmodel-statisticalmodel-interface.jl")
 
 
 
