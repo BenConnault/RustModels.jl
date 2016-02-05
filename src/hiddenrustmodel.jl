@@ -107,7 +107,7 @@ end
 
 function hiddenrustmodel{S}(aa::Array,bb,mu,beta,pis::Array{S,1},horizonindex)
 	dk,da=size(bb)
-	core=rustmodelcore(beta,pitemp(S,dk,da))
+	core=rustmodelcore(beta,pitemp(S,dk,da),horizonindex)
 	hiddenrustmodel(core,aa,bb,mu,beta,pis)
 end
 
@@ -160,18 +160,7 @@ function m!(model::HiddenRustModel)
 	# println(round(sort(vec(unique(model.m))),2))
 end
 
-function coef!(model::HiddenRustModel,theta::Array{Float64,1})
-	dx=size(model.hiddenlayer.mu,1)
-	dlambda=size(model.aa,3)
-	lambda=theta[1:dlambda]
-	q=z2q(theta[dlambda+1:end])
-	u!(model,lambda)
-	pi!(model,q)
-	solvedp!(model.rustcore)
-	m!(model)
-	# dy$size(model.hiddenlayer.mu,2)
-	# println(round(reshape(model.m,dx*dy,dx*dy),2))
-end
+
 
 #for testing purposes
 function naiveccpjac(model)
@@ -306,17 +295,4 @@ function mjac!(model::HiddenRustModel,theta)
 end
 
 
-function coef_jac!(model::HiddenRustModel,theta::Array{Float64,1})
-	dx=size(model.hiddenlayer.mu,1)
-	dlambda=size(model.aa,3)
-	lambda=theta[1:dlambda]
-	q=z2q(theta[dlambda+1:end])
-	# println(theta[dlambda+1:end])
-	u!(model,lambda)
-	pi!(model,q)
-	solvedp!(model)
-	m!(model)
-	mjac!(model,theta)
-	# dy$size(model.hiddenlayer.mu,2)
-	# println(round(reshape(model.m,dx*dy,dx*dy),2))
-end
+
