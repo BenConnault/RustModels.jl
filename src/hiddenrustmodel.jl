@@ -27,7 +27,8 @@ hiddenlayer(mu,dx,dy,dtheta)=HiddenLayer(
 		Array(Float64,dx,dtheta)					#psijac
 )
 
-immutable HiddenRustModel{S} <: StatisticalModel
+
+immutable HiddenRustModel{S,T} <: StatisticalModel
 	#Linear Rust Model u[k,a]=aa[k,a,itheta]*theta + bb[k,a]
 	aa::Array{Float64,3}		  	#aa[k,a,itheta]
 	bb::Array{Float64,2}		  	#bb[k,a]
@@ -35,9 +36,9 @@ immutable HiddenRustModel{S} <: StatisticalModel
 	#might need to "type" pis:T and HiddenRustModel{T} 
 	pis::Array{S,1} 				#condition state transitions 
 	sindices::Array{Array{Int,1},2}		
-	kindices::Array{Array{Int,1},2}
+	# kindices::Array{Array{Int,1},2}   #not needed, should be in rustcore?
 
-	rustcore::RustModelCore
+	rustcore::T
 	hiddenlayer::HiddenLayer
 
 end
@@ -60,19 +61,21 @@ function hiddenrustmodel(core::RustModelCore,aa,bb,mu,beta,pis)
 		end
 	end
 
-	q=fill(1/dx,dx,dx)
+	# q=fill(1/dx,dx,dx)
 
-	kindices=Array(Array{Int64,1},dk,da)
-	for ia=1:da
-		temp=kron(pis[ia],q)'
-		for ik=1:dk
-			kindices[ik,ia]=find(temp[:,ik].!=0)
-		end
-	end
+	# kindices=Array(Array{Int64,1},dk,da)
+	# for ia=1:da
+	# 	temp=kron(pis[ia],q)'
+	# 	for ik=1:dk
+	# 		kindices[ik,ia]=find(temp[:,ik].!=0)
+	# 	end
+	# end
 
+	# println(size(mu),dx,dy,dtheta)
 	layer=hiddenlayer(mu,dx,dy,dtheta)
 	
-	model=HiddenRustModel(aa,bb,pis,sindices,kindices,core,layer)
+	# model=HiddenRustModel(aa,bb,pis,sindices,kindices,core,layer)
+	model=HiddenRustModel(aa,bb,pis,sindices,core,layer)
 
 	#reasonable initial value for solving the first dp?
 	u!(model,rand(size(model.aa)[3]))
@@ -95,19 +98,23 @@ function hiddenrustmodel(core::RustModelCore,aa,bb,mu,beta,pis)
 	model
 end
 
-pitemp(::Type{SparseMatrixCSC{Float64,Int64}},dk,da)=[spzeros(dk,dk)::SparseMatrixCSC{Float64,Int64} for ia=1:da]
-pitemp(::Type{Array{Float64,2}},dk,da)=[zeros(dk,dk)::Array{Float64,2} for ia=1:da]
+pitemp(::Type{SparseMatrixCSC{Float64,Int64}},pis,dx,da)=
+	[kron(pis[ia],sparse(fill(1/dx,dx,dx)))::SparseMatrixCSC{Float64,Int64} for ia=1:da]
+pitemp(::Type{Array{Float64,2}},pis,dx,da)=
+	[kron(pis[ia],fill(1/dx,dx,dx))::Array{Float64,2} for ia=1:da]
 
 
 function hiddenrustmodel{S}(aa::Array,bb,mu,beta,pis::Array{S,1})
-	dk,da=size(bb)
-	core=rustmodelcore(beta,pitemp(S,dk,da))
+	dx=size(mu,1)
+	da=size(bb,2)
+	core=rustmodelcore(beta,pitemp(S,pis,dx,da))
 	hiddenrustmodel(core,aa,bb,mu,beta,pis)
 end
 
 function hiddenrustmodel{S}(aa::Array,bb,mu,beta,pis::Array{S,1},horizonindex)
-	dk,da=size(bb)
-	core=rustmodelcore(beta,pitemp(S,dk,da),horizonindex)
+	dx=size(mu,1)
+	da=size(bb,2)
+	core=rustmodelcore(beta,pitemp(S,pis,dx,da),horizonindex)
 	hiddenrustmodel(core,aa,bb,mu,beta,pis)
 end
 
@@ -119,6 +126,12 @@ function pi!{S}(model::HiddenRustModel{S},q::S)
 	da=size(model.bb,2)
 	for ia=1:da
 		model.rustcore.pi[ia]=kron(model.pis[ia],q)
+		# println(@code_warntype(kron(model.pis[ia],q)))
+		# error()
+		# temp=kron(model.pis[ia],q)
+		# model.rustcore.pi[ia].colptr=temp.colptr
+		# model.rustcore.pi[ia].rowval=temp.rowval
+		# model.rustcore.pi[ia].nzval=temp.nzval
 	end
 end	
 
@@ -138,9 +151,13 @@ function u!(model::HiddenRustModel,lambda::Array{Float64,1})
 end
 
 
-function m!(model::HiddenRustModel)
+function m!{S,T}(model::HiddenRustModel{S,T})
+	# model.rustcore.pi::Array{S,1}
+	# model.rustcore.p::Array{Float64,2}
 	dx,dy=size(model.hiddenlayer.mu)
+	#not sur why, the compiler needs the hint. It is troubler by model.rustcore.p
 	dk,da=size(model.rustcore.p)
+	# ::Tuple{Int,Int}   
 	ds=size(model.sindices)[1]
 	for iy=1:dy
 		is,ia=ind2sub((ds,da),iy)

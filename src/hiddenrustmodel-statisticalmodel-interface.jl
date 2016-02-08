@@ -3,6 +3,8 @@ function coef!(model::HiddenRustModel,theta::Tuple)
 	q=theta[2]
 	u!(model,lambda)
 	pi!(model,q)
+	# println(@code_warntype(pi!(model,sparse(q))))
+	# error()
 	solvedp!(model.rustcore)
 	m!(model)
 end
