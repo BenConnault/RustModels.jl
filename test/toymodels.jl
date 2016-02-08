@@ -24,7 +24,7 @@ function classicaltoys()
 	bb=zeros(dk,da)
 	dirm=rustmodel(aa,bb,mu,beta,pis)
 	sirm=rustmodel(aa,bb,mu,beta,spis)
-	dfrm=rustmodel(aa,bb,mu,beta,spis,16)
+	dfrm=rustmodel(aa,bb,mu,beta,pis,16)
 	sfrm=rustmodel(aa,bb,mu,beta,spis,16)
 
 	dirm,sirm,dfrm,sfrm
