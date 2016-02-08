@@ -83,23 +83,23 @@ function solvedp!(model::DFRMC)
 	model.V[:]=0		#could be slightly more efficient here, see the sparsefinitehorizon case
 	for ik in dk:-1:1			#this works as long as observable states are ranked by chronological order. 
 		for ia=1:da
-			model.v[ik,ia]=model.u[ik,ia]+model.beta*dot(full(model.pi[ia])[ik,:],model.V)
+			model.v[ik,ia]=model.u[ik,ia]+model.beta*dot(vec(full(model.pi[ia])[ik,:]),model.V)
 			model.p[ik,ia]=exp(model.v[ik,ia]-model.v[ik,1])				#for numerical stability
 		end
 		model.p[ik,:]/=sum(model.p[ik,:])
-		model.V[ik]=dot(model.p[ik,:],model.v[ik,:]-log(model.p[ik,:]))
+		model.V[ik]=dot(vec(model.p[ik,:]),vec(model.v[ik,:]-log(model.p[ik,:])))
 	end
 end
 
 function solvedp!(model::SFRMC)
 	dk,da=size(model.p)
-	
+
 	#I could do one loop instead of two
 	#but speed matters
 	# local pisix::Float64=0
 	for ik in model.horizonindex:dk			
 		model.V[ik]=0
-		rho=0
+		rho=0.0
 		for ia=1:da
 			model.p[ik,ia]=exp(model.u[ik,ia]-model.u[ik,1])				#for numerical stability
 			rho+=model.p[ik,ia]
@@ -111,7 +111,7 @@ function solvedp!(model::SFRMC)
 	end
 	for ik in model.horizonindex-1:-1:1			#this works as long as observable states are ranked by chronological order. 
 		model.V[ik]=0
-		rho=0
+		rho=0.0
 		for ia=1:da
 			model.v[ik,ia]=0
 			# println(sum(full(model.pi[ia])[ik,model.kindices[ik,ia]]))
@@ -128,7 +128,7 @@ function solvedp!(model::SFRMC)
 			model.V[ik]+=model.p[ik,ia]*(model.v[ik,ia]-log(model.p[ik,ia]))
 		end
 	end
-	# println(sort(vec(model.p)))
+	# println("inside ",checkdp(model))
 end
 
 
