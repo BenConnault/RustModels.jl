@@ -9,5 +9,6 @@ include("toymodels.jl")
 # include("indexmanipulation.jl")
 include("classicalrustmodels.jl")
 include("hiddenrustmodels.jl")
+include("jacobians.jl")
 
 

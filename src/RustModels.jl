@@ -10,7 +10,7 @@ importall DynamicDiscreteModels
 import HiddenMarkovModels: rsm, nsm, z2q, q2z, z2qjac
 
 export sa2y, y2sa, xs2k, k2xs,
-		coef!, rand, loglikelihood, dim,mle,
+		coef!,coef_jac!, rand, loglikelihood, dim,mle,
 		rustmodel, hiddenrustmodel, checkdp
 
 

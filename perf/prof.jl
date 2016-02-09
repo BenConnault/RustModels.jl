@@ -20,11 +20,10 @@ dirm,sirm,dfrm,sfrm=hiddentoys()
 theta0=[5.,15,1.1,-.8]
 
 
-coef!(dirm,theta0)
-data=rand(dirm,100,100)
+coef_jac!(sfrm,theta0)
 
 Profile.clear()
-@profile mle(dirm,data);
+@profile coef_jac!(sfrm,theta0);
 ProfileView.view()
 
 end #module

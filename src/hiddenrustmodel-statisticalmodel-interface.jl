@@ -9,7 +9,6 @@ function coef!(model::HiddenRustModel,theta::Tuple)
 	m!(model)
 end
 
-
 function coef!(model::HiddenRustModel,theta::Array{Float64,1})
 	dx=size(model.hiddenlayer.mu,1)
 	dlambda=size(model.aa,3)
@@ -17,13 +16,6 @@ function coef!(model::HiddenRustModel,theta::Array{Float64,1})
 	q=z2q(theta[dlambda+1:end])
 	coef!(model,(lambda,q))
 end
-
-# Probably no need to export this in a user-friendly parametrization
-# function coef_jac!(model::HiddenRustModel,theta::Tuple)
-
-# end
-
-
 
 function coef_jac!(model::HiddenRustModel,theta::Array{Float64,1})
 	dx=size(model.hiddenlayer.mu,1)
@@ -33,7 +25,7 @@ function coef_jac!(model::HiddenRustModel,theta::Array{Float64,1})
 	# println(theta[dlambda+1:end])
 	u!(model,lambda)
 	pi!(model,q)
-	solvedp!(model)
+	solvedp!(model.rustcore)
 	m!(model)
 	mjac!(model,theta)
 	# dy$size(model.hiddenlayer.mu,2)
