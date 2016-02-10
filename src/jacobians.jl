@@ -1,3 +1,7 @@
+# As of now, the jacobian methods are tested with sparse pis models.
+# It is unclear if mjac should be dense or sparse for a sparse model.
+
+
 function mjac!(model::HiddenRustModel,theta)
 	dx,dy=size(model.hiddenlayer.mu)
 	dk,da=size(model.rustcore.p)
@@ -17,7 +21,6 @@ function mjac!(model::HiddenRustModel,theta)
 
 	ccpjaclambda,ccpjacq=ccpjac(model)
 	# ccpjacz=reshape(reshape(ccpjacq,dk*da,dx*dx)*z2qjacmat,dk,da,dz) #can be devectorized for efficiency
-	model.hiddenlayer.mjac[:]=0
 	for iy=1:dy
 		is,ia=ind2sub((ds,da),iy)
 		for js in model.sindices[is,ia]    #only those indices which are nonzero #could store the matrix indexed by y, not sure if faster
@@ -32,6 +35,7 @@ function mjac!(model::HiddenRustModel,theta)
 						end
 						for iz=1:dz
 							# ixx=(jx-1)*dx+ix
+							model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]=0
 							for lx=1:dx
 								for kx=1:dx
 									model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]+=model.rustcore.pi[ia][ik,jk]*ccpjacq[jk,ja,lx,kx]*z2qj[lx,kx,iz]
@@ -47,107 +51,22 @@ function mjac!(model::HiddenRustModel,theta)
 	end
 end
 
-#direct inv(smm) (a priori a bad idea but...)
-function ccpjac_inv(model::HiddenRustModel)
-	dx,dy=size(model.hiddenlayer.mu)
-	dk,da=size(model.rustcore.p)
-	ds=size(model.sindices,1)
-	dlambda=size(model.aa,3)
-	mmm=Array(Array{Float64,2},da)          #(dk,dk) inside
-	mmu=Array(Array{Float64,2},da)			#(dk,dlambda) inside
-	mme=Array(Array{Float64,2},dx,dx,da)	#(dk,dk) inside (remember ds*dx=dk)
-	for ia=1:da
-		mmm[ia]=zeros(dk,dk)
-		mmu[ia]=zeros(dk,dlambda)
-		for jk=1:dk
-			for ik=1:dk
-				mmm[ia][ik,jk]=model.rustcore.p[ik,ia]*((ik==jk)-model.rustcore.beta*model.rustcore.pi[ia][ik,jk])
-			end
-		end
-		for jlambda=1:dlambda
-			for ik=1:dk
-				mmu[ia][ik,jlambda]=model.rustcore.p[ik,ia]*model.aa[ik,ia,jlambda]
-			end
-		end
-		fpis=full(model.pis[ia])
-		for jx=1:dx
-			for ix=1:dx
-				# mme[ix,jx,ia]=zeros(dk,dk)
-				#ee=spzeros(dx,dx)  #for a later "sparse" version
-				ee=zeros(dx,dx)
-				ee[ix,jx]=1.0
-				mme[ix,jx,ia]=kron(fpis,ee) #could easily take advantage of sparsity here
-				scale!(model.rustcore.beta,mme[ix,jx,ia])
-				scale!(slice(model.rustcore.p,:,ia),mme[ix,jx,ia])
-			end
-		end
-	end
-	smm=sum(mmm)
-	smmi=inv(smm)  #need to make this efficient as I do several smm\ below
-	smu=sum(mmu)
-	# sme=sum(mme,3)  #one-liner but type-unstable
-	sme=fill(zeros(dx*ds,dx*ds),dx,dx)
-	for ix=1:dx
-		for jx=1:dx
-			for ia=1:da
-				broadcast!(+,sme[ix,jx],sme[ix,jx],mme[ix,jx,ia])   #in place addition sme[ix,jx]+=mme[ix,jx,ia]
-			end
-		end
-	end
-	mlambda=smmi*sparse(smu)
-	jaclambda=zeros(dk,da,dlambda)
-	jacq=zeros(dk,da,dx,dx)
-	V=\(eye(dk)-model.rustcore.beta*model.rustcore.pi[1],model.rustcore.u[:,1]-log(slice(model.rustcore.p,:,1)))
-	for ia=1:da
-		for ilambda=1:dlambda
-			for ik=1:dk
-				for jk=1:dk
-					jaclambda[ik,ia,ilambda]+=mmm[ia][ik,jk]*mlambda[jk,ilambda]
-				end
-				jaclambda[ik,ia,ilambda]=-jaclambda[ik,ia,ilambda]+mmu[ia][ik,ilambda]
-			end
-		end
-	end
-	container1=zeros(dk,dk)
-	container2=zeros(dk,dk)
-	for ix=1:dx
-		for jx=1:dx
-			container1[:,:]=smmi*sparse(sme[ix,jx])   #container1=smmi*sparse(sme[ix,jx])
-			for ia=1:da
-				#jacq[:,ia,ix,jx]=(-mmm[ia]*invproduct+mme[ix,jx,ia])* V
-				A_mul_B!(container2,mmm[ia],container1)
-				scale!(-1,container2)
-				broadcast!(+,container2,container2,mme[ix,jx,ia])
-				A_mul_B!(slice(jacq,:,ia,ix,jx),container2, V)    
-			end
-		end
-	end	
-	jaclambda,jacq
-end
-
-#matrix inversion with qrfact (or lufact)
+#optimized ccpjac function
+#the profiler should spend most of its time on "matrix inversion" operations:
+#the three lines involving smmi
 function ccpjac(model::HiddenRustModel)
 	dx,dy=size(model.hiddenlayer.mu)
 	dk,da=size(model.rustcore.p)
 	ds=size(model.sindices,1)
 	dlambda=size(model.aa,3)
-	mmm=Array(Array{Float64,2},da)          #(dk,dk) inside
+	mmm=Array(SparseMatrixCSC{Float64,Int64},da)          #(dk,dk) inside
 	mmu=Array(Array{Float64,2},da)			#(dk,dlambda) inside
 	mme=Array(SparseMatrixCSC{Float64,Int64},dx,dx,da)	#(dk,dk) inside (remember ds*dx=dk)
 	for ia=1:da
-		mmm[ia]=zeros(dk,dk)
-		mmu[ia]=zeros(dk,dlambda)
-		for jk=1:dk
-			for ik=1:dk
-				mmm[ia][ik,jk]=model.rustcore.p[ik,ia]*((ik==jk)-model.rustcore.beta*model.rustcore.pi[ia][ik,jk])
-			end
-		end
-		for jlambda=1:dlambda
-			for ik=1:dk
-				mmu[ia][ik,jlambda]=model.rustcore.p[ik,ia]*model.aa[ik,ia,jlambda]
-			end
-		end
-		# fpis=full(model.pis[ia])
+		mmm[ia]=speye(dk)-model.rustcore.beta*model.rustcore.pi[ia]
+		sparsescale!(model.rustcore.p[:,ia],mmm[ia]) #modify this to standard scale!() for julia 0.5
+		mmu[ia]=copy(slice(model.aa,:,ia,:))
+		scale!(model.rustcore.p[:,ia],mmu[ia])
 		for jx=1:dx
 			for ix=1:dx
 				# mme[ix,jx,ia]=zeros(dk,dk)
@@ -156,126 +75,44 @@ function ccpjac(model::HiddenRustModel)
 				ee[ix,jx]=1.0
 				mme[ix,jx,ia]=kron(model.pis[ia],sparse(ee)) #could easily take advantage of sparsity here
 				scale!(model.rustcore.beta,mme[ix,jx,ia])
-				sparsescale!(model.rustcore.p[:,ia],mme[ix,jx,ia]) #modify to standard scale!() for julia 0.5
+				sparsescale!(model.rustcore.p[:,ia],mme[ix,jx,ia]) #modify this to standard scale!() for julia 0.5
 			end
 		end
 	end
-	smm=sparse(sum(mmm))
-	# smmi=lufact(smm)  #need to make this efficient as I do several smm\ below
-	smmi=qrfact(smm)  #in tests qrfacts seemed faster than lufact
+	smm=sum(mmm)      #sparse (dk,dk)
+	smmi=lufact(smm) 
 	smu=sum(mmu)
 	# sme=sum(mme,3)  #one-liner but type-unstable
-	sme=Array(SparseMatrixCSC{Float64,Int64},dx,dx)
+	sme=Array(SparseMatrixCSC{Float64,Int64},dx,dx)   #(dk,dk) inside
 	for ix=1:dx
 		for jx=1:dx
-			sme[ix,jx]=copy(mme[ix,jx,1])
-			for ia=2:da
+			sme[ix,jx]=spzeros(dk,dk)
+			for ia=1:da
 				# sme[ix,jx]+=mme[ix,jx,ia]
 				broadcast!(+,sme[ix,jx],sme[ix,jx],mme[ix,jx,ia])   #in place addition sme[ix,jx]+=mme[ix,jx,ia]
 			end
 		end
 	end
-	mlambda=smmi\smu
+	
+	# jacobian with respect to structural utility parameter ("lambda")
 	jaclambda=zeros(dk,da,dlambda)
-	jacq=zeros(dk,da,dx,dx)
-	V=\(eye(dk)-model.rustcore.beta*model.rustcore.pi[1],model.rustcore.u[:,1]-log(model.rustcore.p[:,1]))
+	mlambda=smmi\smu     #mlambda is 100% dense
 	for ia=1:da
 		for ilambda=1:dlambda
-			for ik=1:dk
-				for jk=1:dk
-					jaclambda[ik,ia,ilambda]+=mmm[ia][ik,jk]*mlambda[jk,ilambda]
-				end
-				jaclambda[ik,ia,ilambda]=-jaclambda[ik,ia,ilambda]+mmu[ia][ik,ilambda]
-			end
+			A_mul_B!(slice(jaclambda,:,ia,ilambda),mmm[ia],slice(mlambda,:,ilambda))
+			scale!(-1,slice(jaclambda,:,ia,ilambda))
+			broadcast!(+,slice(jaclambda,:,ia,ilambda),slice(jaclambda,:,ia,ilambda),slice(mmu[ia],:,ilambda))
 		end
 	end
-	smmm=[-sparse(mmm[ia])::SparseMatrixCSC{Float64,Int64} for ia=1:da]
+	
+	# jacobian with respect to q
+	jacq=zeros(dk,da,dx,dx)
+	V=\(speye(dk)-model.rustcore.beta*model.rustcore.pi[1],slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)))
 	for ix=1:dx
 		for jx=1:dx
 			invproduct=smmi\(sme[ix,jx]*V)
 			for ia=1:da
-				jacq[:,ia,ix,jx]=smmm[ia]*invproduct+mme[ix,jx,ia]*V
-				# broadcast!(+,slice(jacq,:,ia,ix,jx),smmm[ia]*invproduct,sparse(mme[ix,jx,ia])*V)
-			end
-		end
-	end	
-	jaclambda,jacq
-end
-
-#the final nested loop is too heavy 
-function ccpjac_explicit(model::HiddenRustModel)
-	dx,dy=size(model.hiddenlayer.mu)
-	dk,da=size(model.rustcore.p)
-	ds=size(model.sindices,1)
-	dlambda=size(model.aa,3)
-	mmm=Array(Array{Float64,2},da)
-	mmu=Array(Array{Float64,2},da)
-	mme=Array(Array{Float64,2},dx,dx,da)
-	for ia=1:da
-		mmm[ia]=zeros(dk,dk)
-		mmu[ia]=zeros(dk,dlambda)
-		for jk=1:dk
-			for ik=1:dk
-				mmm[ia][ik,jk]=model.rustcore.p[ik,ia]*((ik==jk)-model.rustcore.beta*model.rustcore.pi[ia][ik,jk])
-			end
-		end
-		for jlambda=1:dlambda
-			for ik=1:dk
-				mmu[ia][ik,jlambda]=model.rustcore.p[ik,ia]*model.aa[ik,ia,jlambda]
-			end
-		end
-		fpis=full(model.pis[ia])
-		for jx=1:dx
-			for ix=1:dx
-				# mme[ix,jx,ia]=zeros(dk,dk)
-				#ee=spzeros(dx,dx)  #for a later "sparse" version
-				ee=zeros(dx,dx)
-				ee[ix,jx]=1.0
-				mme[ix,jx,ia]=kron(fpis,ee) #could easily take advantage of sparsity here
-				scale!(model.rustcore.beta,mme[ix,jx,ia])
-				scale!(model.rustcore.p[:,ia],mme[ix,jx,ia])
-			end
-		end
-	end
-	smm=sum(mmm)
-	smmi=inv(smm)
-	smu=sum(mmu)
-	# sme=sum(mme,3)  #one-liner but type-unstable
-	sme=fill(zeros(dx*ds,dx*ds),dx,dx)
-	for ix=1:dx
-		for jx=1:dx
-			for ia=1:da
-				sme[ix,jx]+=mme[ix,jx,ia]
-			end
-		end
-	end
-	# m=smm\smu   #useless! old code remnant 
-	mlambda=smmi*smu
-	jaclambda=zeros(dk,da,dlambda)
-	jacq=zeros(dk,da,dx,dx)
-	V=\(eye(dk)-model.rustcore.beta*model.rustcore.pi[1],model.rustcore.u[:,1]-log(model.rustcore.p[:,1]))
-	for ia=1:da
-		for ilambda=1:dlambda
-			for ik=1:dk
-				for jk=1:dk
-					jaclambda[ik,ia,ilambda]+=mmm[ia][ik,jk]*mlambda[jk,ilambda]
-				end
-				jaclambda[ik,ia,ilambda]=-jaclambda[ik,ia,ilambda]+mmu[ia][ik,ilambda]
-			end
-		end
-		for ix=1:dx
-			for jx=1:dx
-				for ik=1:dk
-					for lk=1:dk
-						for jk=1:dk
-							for kk=1:dk
-								#in profiling, this appears to be the expensive line:
-								jacq[ik,ia,ix,jx]+=-mmm[ia][ik,jk]*smmi[jk,kk]*sme[ix,jx][kk,lk]*V[lk]
-							end
-						end
-						jacq[ik,ia,ix,jx]+=mme[ix,jx,ia][ik,lk]*V[lk]
-					end
-				end
+				broadcast!(+,slice(jacq,:,ia,ix,jx),-mmm[ia]*invproduct,sparse(mme[ix,jx,ia])*V)
 			end
 		end
 	end	
@@ -283,25 +120,9 @@ function ccpjac_explicit(model::HiddenRustModel)
 end
 
 
-#for testing purposes
-function naiveccpjac(model)
-	dk,da=size(model.rustcore.p)
-	mmm=Array(Array{Float64,2},da)
-	mmu=Array(Array{Float64,2},da)
-	for ia=1:da
-		diagp=diagm(model.rustcore.p[:,ia])
-		mmm[ia]=diagp*(I-model.rustcore.beta*model.rustcore.pi[ia])
-		mmu[ia]=diagp*slice(model.aa,:,ia,:)
-	end
-	smm=sum(mmm)
-	smu=sum(mmu)
-	m=smm\smu
-	jac=Array(Array{Float64,2},da)
-	for ia=1:da
-		jac[ia]=-mmm[ia]*m+mmu[ia]
-	end
-	jac
-end
+#### convenience functions
+
+spindex(m)=sum(map(x-> x≈0,m))/sum(size(m))
 
 
 #### sparsescale stopgap before this makes its way to julia 0.5

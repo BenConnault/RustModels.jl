@@ -8,6 +8,7 @@ theta0=[5.,15,1.1,-.8]
 coef_jac!(sfrm,theta0)
 
 #find non-zeros m's (in linear indices)
+#structural zero transition probabilities have trivial zero jacobians ...
 nzv=find(x-> !(x≈0),sfrm.hiddenlayer.m)
 
 tol=1e-5
@@ -21,11 +22,14 @@ function checkjac(k)
 	end
 	coef_jac!(sfrm,theta0)
 	ix,iy,jx,jy=ind2sub((dx,dy,dx,dy),k)
-	norm(vec(Calculus.gradient(ff,theta0))-vec(slice(sfrm.hiddenlayer.mjac,ix,iy,jx,jy,:))) < tol
+	norm(vec(Calculus.gradient(ff,theta0))-vec(slice(sfrm.hiddenlayer.mjac,ix,iy,jx,jy,:)))
 end
 
 for i=1:5
-	@test checkjac(rand(nzv))
+	@test checkjac(rand(nzv)) < tol
 end
+rnzv=rand(nzv)
+@test checkjac(rnzv) < tol
+@test checkjac(rnzv) < tol
 
 
