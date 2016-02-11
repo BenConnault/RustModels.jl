@@ -51,7 +51,7 @@ function mjac!(model::HiddenRustModel,theta)
 			end
 		end
 	end
-	reshape(reshape(ccpjacq,dk*da,dx*dx)*reshape(z2qj,dx*dx,dz),dk,da,dz)
+	reshape(reshape(ccpjacq,dk*da,dx*dx)*reshape(z2qj,dx*dx,dz),dk,da,dz),ccpjacq
 end
 
 #optimized ccpjac function
@@ -83,26 +83,30 @@ function ccpjac(model::HiddenRustModel)
 		end
 	end
 	smm=sum(mmm)      #sparse (dk,dk)
-	smmi=lufact(smm) 
+	# smmi=lufact(smm) 
 	smu=sum(mmu)
-	# sme=sum(mme,3)  #one-liner but type-unstable
-	sme=Array(SparseMatrixCSC{Float64,Int64},dx,dx)   #(dk,dk) inside
-	for ix=1:dx
-		for jx=1:dx
-			sme[ix,jx]=spzeros(dk,dk)
-			for ia=1:da
-				# sme[ix,jx]+=mme[ix,jx,ia]
-				broadcast!(+,sme[ix,jx],sme[ix,jx],mme[ix,jx,ia])   #in place addition sme[ix,jx]+=mme[ix,jx,ia]
-			end
-		end
-	end
+	sme=sum(mme,3)  #one-liner but type-unstable
+	# sme=Array(SparseMatrixCSC{Float64,Int64},dx,dx)   #(dk,dk) inside
+	# for ix=1:dx
+	# 	for jx=1:dx
+	# 		sme[ix,jx]=spzeros(dk,dk)
+	# 		for ia=1:da
+	# 			# sme[ix,jx]+=mme[ix,jx,ia]
+	# 			broadcast!(+,sme[ix,jx],sme[ix,jx],mme[ix,jx,ia])   #in place addition sme[ix,jx]+=mme[ix,jx,ia]
+	# 		end
+	# 	end
+	# end
 	
 	# jacobian with respect to structural utility parameter ("lambda")
 	jaclambda=zeros(dk,da,dlambda)
-	mlambda=smmi\smu     #mlambda is 100% dense
-	for ia=1:da
-		for ilambda=1:dlambda
-			A_mul_B!(slice(jaclambda,:,ia,ilambda),mmm[ia],slice(mlambda,:,ilambda))
+	# mlambda=smmi\smu     #mlambda is 100% dense
+	println(size(smm))
+	for ilambda=1:dlambda
+		# ll,ll2=Krylov.lsqr(smm,smu[:,ilambda],atol=1e-14,itmax=2000)
+		mlambdailambda=smm\smu[:,ilambda]
+		println("jaclambda inversions: ", norm(smm*mlambdailambda-slice(smu,:,ilambda)))
+		for ia=1:da
+			A_mul_B!(slice(jaclambda,:,ia,ilambda),mmm[ia],mlambdailambda)
 			scale!(-1,slice(jaclambda,:,ia,ilambda))
 			broadcast!(+,slice(jaclambda,:,ia,ilambda),slice(jaclambda,:,ia,ilambda),slice(mmu[ia],:,ilambda))
 		end
@@ -110,12 +114,16 @@ function ccpjac(model::HiddenRustModel)
 	
 	# jacobian with respect to q
 	jacq=zeros(dk,da,dx,dx)
+	# V,ll2=Krylov.lsqr(speye(dk)-model.rustcore.beta*model.rustcore.pi[1],slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)),atol=1e-14,itmax=2000)
 	V=\(speye(dk)-model.rustcore.beta*model.rustcore.pi[1],slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)))
-	# V=IterativeSolvers.lsqr(speye(dk)-model.rustcore.beta*model.rustcore.pi[1],slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)))[1]
-	# println(maximum(V))
+	println("V inversion: ", norm((speye(dk)-model.rustcore.beta*model.rustcore.pi[1])*V-(slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)))))
 	for ix=1:dx
 		for jx=1:dx
-			invproduct=smmi\(sme[ix,jx]*V)
+			invproduct=smm\(sme[ix,jx]*V)
+			# invproduct,ll=Krylov.lsqr(smm,(sme[ix,jx]*V),atol=1e-14,itmax=2000)
+			# ll=Krylov.crmr(smm,(sme[ix,jx]*V))
+			println("jacq inversions: ", norm(smm*invproduct-(sme[ix,jx]*V)), " $(size(smm))")
+			# println(ll[2])
 			for ia=1:da
 				broadcast!(+,slice(jacq,:,ia,ix,jx),-mmm[ia]*invproduct,sparse(mme[ix,jx,ia])*V)
 			end
@@ -130,7 +138,7 @@ end
 spindex(m)=sum(map(x-> x≈0,m))/sum(size(m))
 
 
-#### sparsescale stopgap before this makes its way to julia 0.5
+#### sparsescale stopgap before the following makes its way to julia 0.5
 
 function copyinds!(C::SparseMatrixCSC, A::SparseMatrixCSC)
     if C.colptr !== A.colptr

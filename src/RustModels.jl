@@ -3,7 +3,9 @@ module RustModels
 import NLsolve
 import Distributions: wsample
 import StatsBase.StatisticalModel
+
 import IterativeSolvers
+import Krylov
 
 importall DynamicDiscreteModels
 
