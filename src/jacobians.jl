@@ -1,7 +1,7 @@
 # As of now, the jacobian methods are tested with sparse pis models.
 # It is unclear if mjac should be dense or sparse for a sparse model.
 
-
+#jacobian from the canonical parameter theta=[lambda;z] where z parametrizes q.
 function mjac!(model::HiddenRustModel,theta)
 	dx,dy=size(model.hiddenlayer.mu)
 	dk,da=size(model.rustcore.p)
@@ -38,9 +38,11 @@ function mjac!(model::HiddenRustModel,theta)
 							model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]=0
 							for lx=1:dx
 								for kx=1:dx
+									#derivatives of m by lambda through the CCPs p
 									model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]+=model.rustcore.pi[ia][ik,jk]*ccpjacq[jk,ja,lx,kx]*z2qj[lx,kx,iz]
 								end
 							end
+							#derivatives of m by lambda through pi
 							model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]+=z2qj[ix,jx,iz]*model.pis[ia][is,js]*model.rustcore.p[jk,ja]
 							# model.mjac[ix,iy,jx,jy,dlambda+iz]+=z2qjacmat[ixx,iz]*model.pis[ia][is,js]*model.rustcore.p[jk,ja]
 						end
@@ -49,6 +51,7 @@ function mjac!(model::HiddenRustModel,theta)
 			end
 		end
 	end
+	reshape(reshape(ccpjacq,dk*da,dx*dx)*reshape(z2qj,dx*dx,dz),dk,da,dz)
 end
 
 #optimized ccpjac function
@@ -108,6 +111,8 @@ function ccpjac(model::HiddenRustModel)
 	# jacobian with respect to q
 	jacq=zeros(dk,da,dx,dx)
 	V=\(speye(dk)-model.rustcore.beta*model.rustcore.pi[1],slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)))
+	# V=IterativeSolvers.lsqr(speye(dk)-model.rustcore.beta*model.rustcore.pi[1],slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)))[1]
+	# println(maximum(V))
 	for ix=1:dx
 		for jx=1:dx
 			invproduct=smmi\(sme[ix,jx]*V)

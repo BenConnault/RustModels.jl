@@ -34,5 +34,7 @@ end
 
 loglikelihood(model::HiddenRustModel,data)=loglikelihood(model.hiddenlayer,data)
 loglikelihood_jac(model::HiddenRustModel,data)=loglikelihood_jac(model.hiddenlayer,data)
-rand(model::HiddenRustModel,n::Int)=rand(model.hiddenlayer,n::Int)
+rand(model::HiddenRustModel,n::Int)=rand(model.hiddenlayer,n)
+rand(model::HiddenRustModel,T::Array{Int,1})=rand(model.hiddenlayer,T)
+rand(model::HiddenRustModel,T,n)=rand(model.hiddenlayer,T,n)
 dim(model::HiddenRustModel)=size(model.aa,3)+size(model.hiddenlayer.mu,1)*(size(model.hiddenlayer.mu,1)-1)
