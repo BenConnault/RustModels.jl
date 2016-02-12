@@ -14,41 +14,6 @@ function checkjac(model,param,k)
 	norm(vec(Calculus.gradient(ff,param))-vec(slice(model.hiddenlayer.mjac,ix,iy,jx,jy,:)))
 end
 
-function checkccpjac(model,param,jj)
-	dk,da=size(model.rustcore.p)
-	function ff(theta)
-		coef!(model,theta)
-		model.rustcore.p[jj]		
-	end
-	ccpjac=coef_jac!(model,param)
-	ik,ia=ind2sub((dk,da),jj)
-	println(round(Calculus.gradient(ff,param)[3:end],5))
-	println(round(slice(ccpjac,ik,ia,:),5))
-	println()
-	norm(vec(Calculus.gradient(ff,param)[3:end])-vec(slice(ccpjac,ik,ia,:)))
-end
-
-
-function checkccpjac2(model,param,ik)
-	dk,da=size(model.rustcore.p)
-	dtheta=size(model.aa,3)
-	function ff(ia)
-		function f(theta)
-			coef!(model,theta)
-			model.rustcore.p[ik,ia]
-		end
-		f		
-	end
-	ccpjac,jacq=coef_jac!(model,param)
-	println(round(Calculus.gradient(ff(1),param)[dtheta+1:end],5))
-	println(round(Calculus.gradient(ff(2),param)[dtheta+1:end],5))
-	println(round(slice(ccpjac,ik,1,:),5))
-	println(round(slice(ccpjac,ik,2,:),5))
-	println()
-	# norm(vec(Calculus.gradient(ff,param)[dtheta+1:end])-vec(slice(ccpjac,ik,ia,:)))
-end
-
-
 dx=3
 days=200 #breaks at 125
 # days=20  #breaks at 125

@@ -20,7 +20,7 @@ function mjac!(model::HiddenRustModel,theta)
 	# error()
 
 	ccpjaclambda,ccpjacq=ccpjac(model)
-	# ccpjacz=reshape(reshape(ccpjacq,dk*da,dx*dx)*z2qjacmat,dk,da,dz) #can be devectorized for efficiency
+	ccpjacz=reshape(reshape(ccpjacq,dk*da,dx*dx)*z2qjacmat,dk,da,dz)
 	for iy=1:dy
 		is,ia=ind2sub((ds,da),iy)
 		for js in model.sindices[is,ia]    #only those indices which are nonzero #could store the matrix indexed by y, not sure if faster
@@ -34,24 +34,14 @@ function mjac!(model::HiddenRustModel,theta)
 							model.hiddenlayer.mjac[ix,iy,jx,jy,ilambda]=model.rustcore.pi[ia][ik,jk]*ccpjaclambda[jk,ja,ilambda]
 						end
 						for iz=1:dz
-							# ixx=(jx-1)*dx+ix
-							model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]=0
-							for lx=1:dx
-								for kx=1:dx
-									#derivatives of m by lambda through the CCPs p
-									model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]+=model.rustcore.pi[ia][ik,jk]*ccpjacq[jk,ja,lx,kx]*z2qj[lx,kx,iz]
-								end
-							end
-							#derivatives of m by lambda through pi
-							model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]+=z2qj[ix,jx,iz]*model.pis[ia][is,js]*model.rustcore.p[jk,ja]
-							# model.mjac[ix,iy,jx,jy,dlambda+iz]+=z2qjacmat[ixx,iz]*model.pis[ia][is,js]*model.rustcore.p[jk,ja]
+							# #derivatives of m by lambda through the CCPs p + through pi
+							model.hiddenlayer.mjac[ix,iy,jx,jy,dlambda+iz]=model.rustcore.pi[ia][ik,jk]*ccpjacz[jk,ja,iz]+z2qj[ix,jx,iz]*model.pis[ia][is,js]*model.rustcore.p[jk,ja]
 						end
 					end
 				end	
 			end
 		end
 	end
-	reshape(reshape(ccpjacq,dk*da,dx*dx)*reshape(z2qj,dx*dx,dz),dk,da,dz),ccpjacq
 end
 
 #optimized ccpjac function
@@ -83,28 +73,25 @@ function ccpjac(model::HiddenRustModel)
 		end
 	end
 	smm=sum(mmm)      #sparse (dk,dk)
-	# smmi=lufact(smm) 
 	smu=sum(mmu)
-	sme=sum(mme,3)  #one-liner but type-unstable
-	# sme=Array(SparseMatrixCSC{Float64,Int64},dx,dx)   #(dk,dk) inside
-	# for ix=1:dx
-	# 	for jx=1:dx
-	# 		sme[ix,jx]=spzeros(dk,dk)
-	# 		for ia=1:da
-	# 			# sme[ix,jx]+=mme[ix,jx,ia]
-	# 			broadcast!(+,sme[ix,jx],sme[ix,jx],mme[ix,jx,ia])   #in place addition sme[ix,jx]+=mme[ix,jx,ia]
-	# 		end
-	# 	end
-	# end
+	# sme=sum(mme,3)  #one-liner but type-unstable
+	sme=Array(SparseMatrixCSC{Float64,Int64},dx,dx)   #(dk,dk) inside
+	for ix=1:dx
+		for jx=1:dx
+			sme[ix,jx]=spzeros(dk,dk)
+			for ia=1:da
+				sme[ix,jx]+=mme[ix,jx,ia]
+			end
+		end
+	end
 	
+	smmi=lufact(smm)
+
 	# jacobian with respect to structural utility parameter ("lambda")
 	jaclambda=zeros(dk,da,dlambda)
 	# mlambda=smmi\smu     #mlambda is 100% dense
-	println(size(smm))
 	for ilambda=1:dlambda
-		# ll,ll2=Krylov.lsqr(smm,smu[:,ilambda],atol=1e-14,itmax=2000)
-		mlambdailambda=smm\smu[:,ilambda]
-		println("jaclambda inversions: ", norm(smm*mlambdailambda-slice(smu,:,ilambda)))
+		mlambdailambda=smmi\smu[:,ilambda]
 		for ia=1:da
 			A_mul_B!(slice(jaclambda,:,ia,ilambda),mmm[ia],mlambdailambda)
 			scale!(-1,slice(jaclambda,:,ia,ilambda))
@@ -114,16 +101,10 @@ function ccpjac(model::HiddenRustModel)
 	
 	# jacobian with respect to q
 	jacq=zeros(dk,da,dx,dx)
-	# V,ll2=Krylov.lsqr(speye(dk)-model.rustcore.beta*model.rustcore.pi[1],slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)),atol=1e-14,itmax=2000)
 	V=\(speye(dk)-model.rustcore.beta*model.rustcore.pi[1],slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)))
-	println("V inversion: ", norm((speye(dk)-model.rustcore.beta*model.rustcore.pi[1])*V-(slice(model.rustcore.u,:,1)-log(slice(model.rustcore.p,:,1)))))
 	for ix=1:dx
 		for jx=1:dx
-			invproduct=smm\(sme[ix,jx]*V)
-			# invproduct,ll=Krylov.lsqr(smm,(sme[ix,jx]*V),atol=1e-14,itmax=2000)
-			# ll=Krylov.crmr(smm,(sme[ix,jx]*V))
-			println("jacq inversions: ", norm(smm*invproduct-(sme[ix,jx]*V)), " $(size(smm))")
-			# println(ll[2])
+			invproduct=smmi\(sme[ix,jx]*V)
 			for ia=1:da
 				broadcast!(+,slice(jacq,:,ia,ix,jx),-mmm[ia]*invproduct,sparse(mme[ix,jx,ia])*V)
 			end
